@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Línia de vida</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root { --paper:#f2eadb; --ink:#2a2822; }
+  * { box-sizing:border-box; margin:0; }
+  html, body { background:var(--paper); }
+
+  .scene { position:relative; }               /* la altura la calcula el JS */
+  .viewport { position:sticky; top:0; height:100vh; overflow:hidden; background:var(--paper); contain:paint; }
+  @supports (height:100dvh) { .viewport { height:100dvh; } }
+  .hid { display:none; }
+
+  /* Prado + tierra: teselas espejadas, cada una con su propia transformacion (sin capas gigantes) */
+  .meadow { position:absolute; inset:0; overflow:hidden; pointer-events:none; }
+  .tile {
+    position:absolute; left:0; top:0; max-width:none; transform-origin:50% 50%; user-select:none; -webkit-user-drag:none;
+    -webkit-mask-image:linear-gradient(to bottom, transparent 0, #000 10%, #000 94%, transparent 100%);
+            mask-image:linear-gradient(to bottom, transparent 0, #000 10%, #000 94%, transparent 100%);
+  }
+
+  /* Linea de vida: un canvas del tamano de la pantalla (WebGL) */
+  .rc { position:absolute; left:0; top:0; pointer-events:none; }
+
+  /* Solo si el navegador no soporta WebGL: aparicion con degradado */
+  .life { position:absolute; left:0; top:0; }
+  .roots { position:absolute; top:0; max-width:none;
+    -webkit-mask-image:linear-gradient(90deg, #000 calc(var(--tip) - 90px), transparent var(--tip));
+            mask-image:linear-gradient(90deg, #000 calc(var(--tip) - 90px), transparent var(--tip)); }
+
+  /* Etiquetas (texto real): cada una en su contenedor, que se mueve con la camara */
+  .labels { position:absolute; inset:0; overflow:hidden; pointer-events:none; }
+  .lw { position:absolute; left:0; top:0; display:none; }
+  .ln, .lbl { position:absolute; left:0; top:0; }
+  .ln { background:var(--ink); transform:scaleY(0); transform-origin:bottom; transition:transform .5s ease-out; }
+  .lbl {
+    transform:translate(-50%, calc(-100% + 8px)); opacity:0; text-align:center; white-space:nowrap; color:var(--ink);
+    font-family:"EB Garamond", Garamond, "Palatino Linotype", Palatino, Georgia, serif;
+    transition:opacity .6s ease .25s, transform .6s ease .25s;
+  }
+  .lbl b { display:block; font-weight:600; }
+  .on .lbl { opacity:1; transform:translate(-50%, -100%); }
+  .on .ln  { transform:scaleY(1); }
+
+  /* Semilla */
+  .seed { position:absolute; left:0; top:0; z-index:3; max-width:none; visibility:hidden; pointer-events:none;
+          transform-origin:50% 50%; user-select:none; -webkit-user-drag:none; }
+</style>
+</head>
+<body>
+
+<section class="scene" id="scene">
+  <div class="viewport">
+    <div class="meadow" id="meadow"></div>
+    <img class="hid" id="meadowSrc" src="imagen.png" alt="Prado verde con casas y, debajo, la tierra">
+    <canvas class="rc" id="rc" role="img" aria-label="Línia de vida dibuixada com una arrel que creix fins a ser un arbre"></canvas>
+    <div class="life hid" id="life"><img class="roots" id="roots" src="raices.png" alt="" draggable="false"></div>
+    <img class="hid" id="dist" src="crecimiento.png" alt="">
+    <div class="labels" id="labels"></div>
+    <img class="seed" id="seed" src="semilla.png" alt="Semilla" draggable="false">
+  </div>
+</section>
+
+<script>
+const DATA = {"crop":{"w":2944,"h":1075,"u0":625,"base":452,"rootY":866.2,"trunk":2796.6},"labels":[{"x":55,"t":743,"b":819,"y":"18/10/2004","d":"La meva|arribada|al món"},{"x":240.5,"t":777,"b":852,"y":"2007","d":"Inici de la vida|acadèmica|Escola Pia|Sant Antoni"},{"x":545,"t":775,"b":846,"y":"2009","d":"Divorci|dels meus pares"},{"x":717,"t":794,"b":866,"y":"2016","d":"La meva profe|de plàstica|durant l’ESO"},{"x":884,"t":775,"b":849,"y":"2020","d":"Batxillerat|social-humanístic"},{"x":1061,"t":779,"b":831,"y":"2022","d":"Universitat:|grau en|Belles Arts"},{"x":1245,"t":807,"b":880,"y":"2023","d":"El Massimo,|professor de dibuix"},{"x":1437.5,"t":751,"b":840,"y":"2024 – 2025","d":"Estudiar|a Florència"},{"x":1625.5,"t":772,"b":882,"y":"2025","d":"Detecten càncer|a la meva mare"},{"x":1776,"t":791,"b":866,"y":"2026","d":"Graduació|de Belles Arts"},{"x":1914.5,"t":789,"b":861,"y":"2026","d":"Participació|al Sense Títol"},{"x":2820,"t":67,"b":124,"y":"Projecció|de futur","d":""}],"seed":{"x":11,"y":838,"w":73,"h":62},"growth":{"dmax":3755.696326601043,"scale":15.975732535942496,"front":[95,103,114,128,142,156,170,185,200,215,229,244,257,271,285,299,312,325,338,351,365,379,393,407,422,436,451,465,480,494,508,522,536,550,564,578,592,607,621,635,650,664,679,693,708,723,737,750,763,776,790,803,816,830,843,857,870,884,898,911,925,938,952,966,980,994,1008,1021,1034,1048,1062,1075,1089,1103,1117,1130,1143,1156,1170,1184,1199,1213,1227,1242,1256,1270,1284,1298,1312,1326,1340,1355,1369,1383,1397,1410,1422,1434,1446,1459,1472,1485,1499,1511,1523,1536,1549,1562,1575,1590,1604,1618,1632,1647,1661,1675,1689,1702,1715,1728,1742,1755,1769,1782,1795,1808,1821,1833,1847,1861,1876,1891,1906,1920,1934,1948,1962,1975,1988,2001,2014,2026,2037,2049,2060,2071,2082,2092,2102,2111,2119,2128,2137,2147,2157,2169,2180,2191,2201,2212,2221,2232,2243,2253,2263,2272,2281,2290,2299,2308,2318,2327,2337,2348,2358,2369,2380,2391,2403,2415,2428,2441,2454,2468,2482,2496,2511,2525,2539,2553,2568,2582,2597,2611,2625,2639,2653,2667,2680,2694,2707,2720,2733,2746,2760,2773,2787,2799,2812,2824,2837,2849,2863,2877,2890,2901,2911,2919,2923,2926,2929,2929,2930,2930,2931,2931,2931,2931,2931,2931,2931,2931,2931,2931,2931,2931,2931,2931,2931,2931],"fy":[866.2,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,866.1,865.8,865.3,865.0,864.1,863.1,861.6,856.1,847.5,838.2,827.9,816.7,805.4,794.6,783.9,773.4,765.1,756.9,748.5,739.3,730.4,720.2,708.1,694.1,679.7,666.3,655.6,645.1,634.3,622.6,611.0,599.9,589.3,578.3,567.2,555.5,543.3,532.9,523.7,514.8,507.1,500.7,495.1,490.4,486.3,483.4,481.1,479.1,477.7,476.2,475.0,474.3,473.3,472.8,471.7,470.3,469.3,468.4,468.0,466.8,465.2,464.0,462.8,462.1,461.7,461.1,461.0,461.0,461.0,461.0,461.0,461.0,461.0,461.0,461.0,461.0,461.0,461.0,461.0,461.0,461.0,461.0,460.0,460.0,460.0,460.0,460.0,460.0,460.0,460.0,460.0,460.0,460.0,460.0,460.0,460.0,460.0,460.0]}};
+const SOIL = 0.604, RATIO = 0.5628;              // linea de tierra y proporcion de imagen.png
+const K = 0.75;                                  // largo del scroll de crecimiento (mas alto = mas lento)
+const ANCHOR = 0.47, ANCHORX = 0.38, FOLLOW = 1.0;   // posicion de la punta en pantalla (alto y ancho) y cuanto la sigue la camara al subir
+const $ = id => document.getElementById(id);
+const scene = $('scene'), meadow = $('meadow'), meadowSrc = $('meadowSrc'), rc = $('rc'), life = $('life'),
+      roots = $('roots'), distImg = $('dist'), labelsEl = $('labels'), seed = $('seed');
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const { w: CW, h: CH, u0, base, rootY, trunk } = DATA.crop, SD = DATA.seed, GR = DATA.growth, MAXU = 60000;
+
+/* ---------- Etiquetas (linea que crece + texto) ---------- */
+const els = DATA.labels.map(l => {
+  const wr = document.createElement('div'), ln = document.createElement('div'), tx = document.createElement('div');
+  wr.className = 'lw'; ln.className = 'ln'; tx.className = 'lbl';
+  tx.innerHTML = l.d ? '<b>' + l.y + '</b>' + l.d.split('|').join('<br>') : '<b>' + l.y.split('|').join('<br>') + '</b>';
+  wr.append(ln, tx); labelsEl.append(wr);
+  return { l, wr, ln, tx };
+});
+
+/* ---------- WebGL: la tinta original se revela siguiendo el trazo ---------- */
+let gl = null, U = {}, glReady = false;
+const VS = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+const FS = `precision highp float;
+uniform sampler2D uInk,uDist,uMeadow;uniform vec2 uRes,uCam;uniform vec3 uMead;uniform vec4 uRect;uniform float uDpr,uD,uF;
+void main(){
+  vec2 sp=vec2(gl_FragCoord.x,uRes.y-gl_FragCoord.y)/uDpr;
+  // prado: copias espejadas a lo ancho del mundo (sin costuras), con el mismo fundido arriba y abajo
+  vec2 w=sp+uCam;
+  float tx=mod((w.x-uMead.x)/uMead.y,2.);
+  float m=tx>1.?2.-tx:tx;
+  float vy=w.y/uMead.z;
+  float mk=step(0.,vy)*step(vy,1.)*clamp(vy/.1,0.,1.)*clamp((1.-vy)/.06,0.,1.);
+  vec4 M=texture2D(uMeadow,vec2(m,clamp(vy,0.,1.)))*mk;
+  // linea de vida: la tinta se revela siguiendo el trazo
+  vec2 v=(sp-uRect.xy)/uRect.zw;
+  float ins=step(0.,v.x)*step(v.x,1.)*step(0.,v.y)*step(v.y,1.);
+  vec2 cv=clamp(v,0.,1.);
+  vec4 k=texture2D(uInk,cv); vec4 q=texture2D(uDist,cv);
+  float d=floor(q.r*255.+.5)*256.+floor(q.g*255.+.5);
+  vec4 R=k*(1.-smoothstep(uD-uF,uD,d))*ins;
+  gl_FragColor=R+M*(1.-R.a);
+}`;
+const ready = im => im.complete && im.naturalWidth ? Promise.resolve() : new Promise((ok, ko) => { im.onload = ok; im.onerror = ko; });
+
+async function initGL() {
+  try {
+    const opts = { premultipliedAlpha:true, alpha:true };
+    gl = rc.getContext('webgl2', opts) || rc.getContext('webgl', opts);
+    if (!gl) throw new Error('sin webgl');
+    if (gl.getParameter(gl.MAX_TEXTURE_SIZE) < 3000) throw new Error('textura demasiado grande');
+    const gl2 = typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext;
+    const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o);
+      if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
+    const pr = gl.createProgram();
+    gl.attachShader(pr, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, FS));
+    gl.linkProgram(pr); gl.useProgram(pr);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    ['uRes', 'uRect', 'uDpr', 'uD', 'uF', 'uCam', 'uMead'].forEach(n => U[n] = gl.getUniformLocation(pr, n));
+    await Promise.all([ready(roots), ready(distImg), ready(meadowSrc)]);
+    [[roots, 'uInk', 0, true], [distImg, 'uDist', 1, false], [meadowSrc, 'uMeadow', 2, true]].forEach(([img, name, unit, smooth]) => {
+      gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, name !== 'uDist');
+      gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);   // falla si el navegador bloquea la imagen (file://)
+      const mip = smooth && gl2; if (mip) gl.generateMipmap(gl.TEXTURE_2D);
+      const mag = smooth ? gl.LINEAR : gl.NEAREST, min = mip ? gl.LINEAR_MIPMAP_LINEAR : mag;
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, min); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, mag);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.uniform1i(gl.getUniformLocation(pr, name), unit);
+    });
+    gl.clearColor(0, 0, 0, 0);
+    glReady = true;
+  } catch (e) {
+    gl = null; useTiles = true; rc.classList.add('hid'); life.classList.remove('hid');   // alternativa: aparicion difuminada
+  }
+  layout(); update();
+}
+
+function drawGL(g, cx, cy) {
+  const F = 8 * GR.scale;                                   // borde de tinta fresca (~8 px)
+  gl.viewport(0, 0, rc.width, rc.height);
+  gl.uniform2f(U.uRes, rc.width, rc.height); gl.uniform1f(U.uDpr, rc.width / L.vw);
+  gl.uniform4f(U.uRect, L.pad - cx, L.Yt - cy, L.Wd, L.Hc);
+  gl.uniform2f(U.uCam, cx, cy); gl.uniform3f(U.uMead, L.left0, L.Wm, L.h);
+  gl.uniform1f(U.uD, g * (MAXU + F)); gl.uniform1f(U.uF, F);
+  gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+/* ---------- Geometria ---------- */
+let L, tiles = [], tileKey = '', useTiles = false;
+function layout() {
+  const vw = innerWidth, vh = innerHeight;
+  const h  = Math.max(vw * RATIO, vh * 0.6), Wm = h / RATIO;   // prado a ancho completo, sin zoom
+  const u  = vh * 0.72 / u0, Wd = CW * u, Hc = CH * u;         // escala de la linea de vida
+  const f0 = GR.front[0];
+  const pad = ANCHORX * vw - f0 * u, totalW = pad + Wd + vw * 0.06;   // la punta empieza a ANCHORX del ancho de pantalla
+  const Yt = SOIL * h - vh * 0.01 - base * u;                  // la base del arbol queda justo sobre la linea del suelo
+  const C0 = SOIL * h - vh, Cd = Yt + rootY * u - ANCHOR * vh; // camara: solo prado -> bajo tierra
+  const A = Cd - C0, Gs = 0.88 * A, B = K * GR.dmax * u;       // la semilla aterriza y empieza el crecimiento al 88% del descenso
+  const cxMax = Math.max(0, pad + trunk * u - 0.5 * vw);       // al final el tronco queda centrado
+  const sw = SD.w * u, sh = SD.h * u, dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  L = { vw, vh, h, Wm, left0: (vw - Wm) / 2, u, Wd, Hc, pad, totalW, Yt, C0, Cd, A, Gs, B, cxMax, sw, sh, swx: pad + SD.x * u, swy: Yt + SD.y * u };
+
+  scene.style.height = (vh + Gs + B + vh * 0.3) + 'px';
+  rc.width = Math.round(vw * dpr); rc.height = Math.round(vh * dpr); rc.style.width = vw + 'px'; rc.style.height = vh + 'px';
+  Object.assign(life.style, { width: totalW + 'px', height: Hc + 'px' });                    // (solo alternativa sin WebGL)
+  Object.assign(roots.style, { left: pad + 'px', width: Wd + 'px', height: Hc + 'px' });
+  Object.assign(seed.style, { width: sw + 'px', height: sh + 'px' });
+
+  // teselas del prado (las impares se espejan para que no haya costuras)
+  const n = Math.ceil((totalW + Wm) / Wm) + 1, key = [n, Math.round(h), Math.round(Wm)].join();
+  if (useTiles && key !== tileKey) {
+    tileKey = key; meadow.textContent = ''; tiles = [];
+    for (let i = 0; i < n; i++) {
+      const im = new Image(); im.src = meadowSrc.src; im.alt = ''; im.draggable = false; im.className = 'tile'; im.style.display = 'none';
+      meadow.appendChild(im); tiles.push(im);
+    }
+  }
+  tiles.forEach(im => { im.style.width = Wm + 'px'; im.style.height = h + 'px'; });
+
+  els.forEach(({ l, ln, tx }) => {
+    const lw = Math.max(1, 1.5 * u);
+    Object.assign(ln.style, { top: '0px', height: (l.b - l.t) * u + 'px', width: lw + 'px', marginLeft: -lw / 2 + 'px' });
+    Object.assign(tx.style, { fontSize: 19 * u + 'px', lineHeight: 21.4 * u + 'px' });
+  });
+}
+
+const lerpT = (arr, g) => { const k = g * (arr.length - 1), i = Math.min(arr.length - 2, Math.floor(k)); return arr[i] + (arr[i + 1] - arr[i]) * (k - i); };
+
+function update() {
+  if (!L) return;
+  const y = clamp(-scene.getBoundingClientRect().top, 0, L.Gs + L.B + L.vh);
+  const g = clamp((y - L.Gs) / L.B, 0, 1);                  // progreso del dibujo de la raiz
+  const tip = lerpT(GR.front, g), tipY = lerpT(GR.fy, g);   // donde esta la punta del trazo (px de la imagen)
+  // camara: baja 1:1 con el scroll; luego acompana la punta hacia la derecha y, al crecer el arbol, vuelve a subir al prado
+  const cy = L.C0 + Math.min(y, L.A) + FOLLOW * (tipY - GR.fy[0]) * L.u;
+  const cx = clamp((tip - GR.front[0]) * L.u, 0, L.cxMax);  // la camara avanza exactamente con la punta del trazo
+
+  tiles.forEach((im, i) => {
+    const x = L.left0 + i * L.Wm - cx, vis = x < L.vw && x + L.Wm > 0;
+    im.style.display = vis ? 'block' : 'none';
+    if (vis) im.style.transform = `translate(${x}px, ${-cy}px)` + (i % 2 ? ' scaleX(-1)' : '');
+  });
+
+  if (glReady) drawGL(g, cx, cy);
+  else if (!gl) {                                           // alternativa sin WebGL
+    life.style.transform = `translate(${-cx}px, ${L.Yt - cy}px)`;
+    roots.style.setProperty('--tip', (g >= 1 ? L.Wd + 90 : tip * L.u) + 'px');
+  }
+
+  els.forEach(({ l, wr, ln, tx }) => {
+    const x = L.pad + l.x * L.u - cx, yy = L.Yt + l.t * L.u - cy;
+    const show = x > -300 && x < L.vw + 300 && yy > -500 && yy < L.vh + 200;
+    wr.style.display = show ? 'block' : 'none';
+    if (show) wr.style.transform = `translate(${x}px, ${yy}px)`;
+    wr.classList.toggle('on', g > 0 && tip >= l.x - 20);
+  });
+
+  // semilla: cae desde arriba y aterriza donde empieza la raiz
+  const q = clamp((y - 0.1 * L.A) / (L.Gs - 0.1 * L.A), 0, 1), e = q * q;
+  let sy;
+  if (y >= L.Gs) sy = L.swy - cy;
+  else { const rest = L.swy - (L.C0 + L.Gs); sy = -L.sh * 2 + (rest + L.sh * 2) * e; }
+  seed.style.visibility = q > 0 ? 'visible' : 'hidden';
+  seed.style.transform = `translate(${L.swx - cx}px, ${sy}px) rotate(${(1 - e) * 50}deg) scale(${1 + 0.5 * (1 - e)})`;
+  seed.style.filter = e < 1 ? `drop-shadow(0 ${4 * (1 - e)}px ${6 * (1 - e)}px rgba(40,30,10,${0.45 * (1 - e)}))` : 'none';
+}
+
+let tick = false;
+addEventListener('scroll', () => { if (!tick) { tick = true; requestAnimationFrame(() => { update(); tick = false; }); } }, { passive:true });
+addEventListener('resize', () => { layout(); update(); });
+layout(); update(); initGL();
+</script>
+</body>
+</html>
